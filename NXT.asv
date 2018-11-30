@@ -1,12 +1,12 @@
-map = [0,0;60,0;60,45;45,45;45,59;106,59;106,105;0,105]; %default map
-goal = [20,20];
+map = [0,0;66,0;66,44;44,44;44,66;110,66;106,105;0,105]; %default map
+goal = [25,20];
 start = [80,80];
 mainBot = BotSim(map);
 mainBot.drawMap()
 createPointsMap2(mainBot, goal,  start)
 %h = init();
 %rotateSensor();
-%astar(map, start, goal, mainBot)
+astar(map, start, goal, mainBot)
 %finish(h)
 
 function astar(map, start, goal, mainBot)
@@ -18,13 +18,17 @@ function astar(map, start, goal, mainBot)
     [largerGirdPoints, pos] = max(numberOfPointsXY);
     numberOfPoints = ceil(numberOfPointsXY(pos));
 
-    pointsMap = createPointsMap(mainBot, goal, numberOfPoints, pointGridResolution, 3, start);
+    pointsMap = createPointsMap2(mainBot, goal, start);
     
     startIndex = findNearestIndex(start, pointsMap);
     goalIndex = findNearestIndex(goal, pointsMap);
     
     path = calcPath(startIndex, goalIndex, pointsMap, numberOfPoints, pointGridResolution);
-    currentAng = moveToGoal(mainBot, path, pointsMap, pointGridResolution);
+    
+    for i = 1:length(path)
+        disp(pointsMap(path(i)).coord)
+    end
+    %currentAng = moveToGoal(mainBot, path, pointsMap, pointGridResolution);
               
     %mainBot.move(dist);
     %mainBot.drawBot(0);
@@ -74,39 +78,13 @@ function h = calcH(pos, goal, res)
 end
 
 function indexes = findAdjIndexes(index, numberOfPoints)
-    bottom = index <= numberOfPoints;
-    top = index >= (numberOfPoints - 1)*numberOfPoints;
-    left = mod(index, numberOfPoints) == 1;
-    right = mod(index, numberOfPoints) == 0;
-    
-    indexUpLeft = index + numberOfPoints - 1;
-    indexUp = index + numberOfPoints;
-    indexUpRight = index + numberOfPoints + 1;
-    indexLeft = index - 1;
-    indexRight = index + 1;
-    indexDownLeft = index - numberOfPoints - 1;
-    indexDown = index - numberOfPoints;
-    indexDownRight = index - numberOfPoints + 1;
-
-    if bottom && left     
-        indexes = [indexRight, indexUp, indexUpRight];
-    elseif bottom && right
-        indexes = [indexLeft, indexUp, indexUpLeft];
-    elseif top && left
-        indexes = [indexRight, indexDown, indexDownRight];
-    elseif top && right
-        indexes = [indexLeft, indexDown, indexDownLeft];
-    elseif bottom
-        indexes = [indexRight, indexLeft, indexUp, indexUpLeft, indexUpRight];
-    elseif top
-        indexes = [indexRight, indexLeft, indexDown, indexDownLeft, indexDownRight];
-    elseif right
-        indexes = [indexLeft, indexUpLeft, indexDownLeft, indexUp, indexDown];            
-    elseif left
-    	indexes = [indexRight, indexUpRight, indexDownRight, indexUp, indexDown];    
-    else
-        indexes = [indexLeft, indexRight, indexUpLeft, indexDownLeft, indexUpRight, indexDownRight, indexUp, indexDown];
-    end  
+    if index == 1
+        indexes = [2];
+    elseif index == 6
+        indexes = [5];
+    else 
+        indexes = [index - 1 , index + 1];
+    end
 end 
 
 
@@ -153,11 +131,11 @@ function pointsMap = calcG(pointsMap, currentIndex, numberOfPoints, res)
 end
 
 function g = gScoreForPoint(pointsMap, adjIndex, res, currentIndex, numberOfPoints)
-    moveCost = res;
-    diagMove = abs(adjIndex - currentIndex) ~=1 && abs(adjIndex - currentIndex) ~= numberOfPoints;
-    if diagMove
-        moveCost = diagDistance(res);
-    end
+    point1x = pointsMap(currentIndex).coord(1);
+    point1y = pointsMap(currentIndex).coord(2);
+    point2x = pointsMap(adjIndex).coord(1);
+    point2y = pointsMap(adjIndex).coord(2);
+    moveCost = abs(point1x - point2x) + (point1y - point2y);
     g = pointsMap(currentIndex).gscore + moveCost;
 end
 
@@ -181,28 +159,18 @@ function paddedPointsMap = applyPad(pointsMap, numberOfPoints)
     paddedPointsMap = pointsMap;
 end
 
-function pointsMap = createPointsMap(robot, goal, numberOfPoints, res, pads, bestPos)
-    index = 1;
-    for i = 1:numberOfPoints
-        for j = 1:numberOfPoints
-            pointsMap(index) = createPoint(robot, goal,bestPos, res,[i * res, j * res]);
-            index = index + 1;
-        end
-    end
-    for i = 1:pads
-        pointsMap = applyPad(pointsMap, numberOfPoints);
-    end    
-end
 
 function pointsMap = createPointsMap2(robot, goal,  bestPos)
     index = 1;
-    i = 1
-    positions = [[30,20], [30,40], [30,60], [30,80],[60, 80], [90,80]];
+    i = 1;
+    x1 = 25;
+    positions = [[x1,20], [x1,40], [x1,60], [x1,80],[x1 + 30, 80], [x1 + 60,80]];
     while i < length(positions)
         p1 = positions(i);
-        disp(p)
-        pos = [p(1), p(2)];
-        pointsMap(index) = createPoint(robot, goal,bestPos, res,pos);
+        p2 = positions(i + 1);
+        i = i + 2;
+        pos = [p1, p2];
+        pointsMap(index) = createPoint(robot, goal,bestPos, 1 ,pos);
         index = index + 1;
         plot(pos(1),pos(2),'O')
     end
