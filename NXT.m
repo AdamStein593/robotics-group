@@ -1,26 +1,32 @@
-%est_botposition est_botangle variables are the estimated position and angle from MCL
-%compare this with robot_angle and robot_position variables
 h =COM_OpenNXT(); %Connect to the NXT Brick via USB
 COM_SetDefaultNXT(h);
 OpenUltrasonic(SENSOR_1);
 num_scan = 36;
-half = -1;
 reverse = 0;
-[ang_correct,~] = sensor_rotate(num_scan);
+iteration_correct = 1;
 
-if ang_correct > 180
-    half = 1;
-    ang_correct = 360 - ang_correct;
+while iteration_correct <= 2
+    half = -1;
+    [ang_correct,readings] = sensor_rotate(num_scan);
+
+    if ang_correct > 180
+        half = 1;
+        ang_correct = 360 - ang_correct;
+    end
+    correct = ang_correct / 180 * pi;
+    turn(correct * half);
+
+    if iteration_correct == 1 && correct == 0 && readings(19,1) > 10
+        reverse = -(10);
+    end
+    iteration_correct = iteration_correct + 1;
 end
-correct = ang_correct / 180 * pi;
-turn(correct * half);
 
-[~,readings] = sensor_rotate(8);
-if readings(8,1) > readings(1,1) * 2 || readings(2,1) > readings(1,1) * 2
+% [~,readings] = sensor_rotate(8);
+if readings(5,1) > readings(1,1) * 2 || readings(28,1) > readings(1,1) * 2
     reverse = -(10);
     move(reverse);
     
-    num_scan = 36;
     half = -1;
     [~,readings] = sensor_rotate(num_scan);
     readings(1:8) = ones(8,1) .* 255;
@@ -38,8 +44,6 @@ end
 
 map=[0,0;66,0;66,44;44,44;44,66;110,66;110,110;0,110];  %default map
 botSim = BotSim(map,[0,0,0]);
-% botSim.setSensorNoise(3);
-% botSim.randomPose(10); %puts the robot in a random position at least 10cm away from a wall
 %you can modify the map to take account of your robots configuration space
 modifiedMap = map; %you need to do this modification yourself
 botSim.setMap(modifiedMap);
@@ -61,10 +65,6 @@ max_est_loop = 3; %maximum number of loop the particle follow robot before fully
 min_incluster = (num - add_in) * 20/100; %minimum number of particles together for a cluster
 conv_parti_num = num * 65/100; %minimum number of particles in a cluster for convergence
 
-% botSim.setScanConfig(botSim.generateScanConfig(num_scan));
-% botSim.setTurningNoise(0.005);
-% botSim.setMotionNoise(0.01);
-
 %generate some random particles inside the map
 particles(num,1) = BotSim; %how to set up a vector of objects
 for i = 1:num
@@ -80,6 +80,10 @@ end
 n = 0;
 est_loop = 0; %count number of loop estimated particle follow robot
 converged =0; %The localisation has not converged yet
+correct_right = 0;
+correct_left = 0;
+correct_ang = 0;
+correct_once = 1;
 while(converged == 0 && n < maxNumOfIterations) %%particle filter loop
     est_converge = 0; %the solution maybe converged if 1
     oldpos_particle = zeros(num,2); %position of all particles
@@ -91,15 +95,32 @@ while(converged == 0 && n < maxNumOfIterations) %%particle filter loop
     %% Move robot and prevent robot going off map
 %     if rem(n,iteration_move) == 0
 %         botScan = sensor(num_scan); %get a scan from the real robot
+        if n == 1
         [~,botScan] = sensor_rotate(num_scan);
+        
+        else
+            if correct_right == 1
+                turn(correct_ang);
+                correct_right = 0;
+                correct_once = 0;
+            end
+            
+            if correct_left == 1
+                turn(-correct_ang);
+                correct_left = 0;
+                correct_once = 0;
+            end
+        end
 
         %robot size right of , sensor of +/- 3cm, back of , front of 3cm
 %         while botScan(1,1) <= moves + 15 || botScan(1,1) > 120%|| botScan(2,1) <= 6 || botScan(8,1) <= 6
 %             [~,ang_far] = max(botScan);
-        wall_close = 0;
-        reverse = 0;
+%         wall_close = 0;
+%         reverse = 0;
         far = 0;
-        if botScan(1,1) <= moves + 10 || botScan(1,1) > 120
+        dist_side = 15;
+        turn_ang = 0;
+        if botScan(1,1) <= moves + 20 || botScan(1,1) > 120
             [~,far] = max(botScan(2:4,1));
             far = far + 1;
             if far == 4
@@ -130,11 +151,25 @@ while(converged == 0 && n < maxNumOfIterations) %%particle filter loop
             end
             
             bot_turn = -turn_ang;
+            correct_once = 1;
 %             botScan = sensor(num_scan);
         end
         move(moves);
 %         botScan = sensor(num_scan);
         [~,botScan] = sensor_rotate(num_scan);
+        
+        if n > 1 && correct_once == 1
+            if botScan(2,1) < dist_side && abs(move_scan(2,1) - botScan(2,1)) < 10 && abs(move_scan(2,1) - botScan(2,1)) > 2
+                correct_right = 1;
+                correct_ang = atan((move_scan(2,1) - botScan(2,1))/moves);
+            end
+            
+            if botScan(4,1) < dist_side && abs(move_scan(4,1) - botScan(4,1)) < 10 && abs(move_scan(4,1) - botScan(4,1)) > 2
+                correct_left = 1;
+                correct_ang = atan((move_scan(4,1) - botScan(4,1))/moves);
+            end
+        end
+        move_scan = botScan;
     
     %% Write code for updating your particles scans
     % particles move -8cm if 180 deg turn
@@ -378,16 +413,7 @@ while(converged == 0 && n < maxNumOfIterations) %%particle filter loop
         est_botposition(1,1) = mean(cluster_particles(:,1),1);
         est_botposition(1,2) = mean(cluster_particles(:,2),1);
         est_botangle = median(cluster_ang(:,1),1);
-%         robot_position = botSim.getBotPos();
-%         robot_angle = botSim.getBotAng();
-%         while robot_angle > 2*pi %make sure the angle is within 360 degrees
-%             robot_angle = robot_angle - (2*pi);
-%         end
-%                 
-%         while robot_angle < 0 %make sure the angle is within 360 degrees
-%             robot_angle = robot_angle + (2*pi);
-%         end
-        
+
         while est_botangle > 2*pi %make sure the angle is within 360 degrees
             est_botangle = est_botangle - (2*pi);
         end
@@ -421,11 +447,21 @@ end
 % botSim.drawBot(4,'k');
 % est_botposition
 % est_botangle = est_botangle/pi*180
-% COM_CloseNXT(h); %Close the serial connection
+%COM_CloseNXT(h); %Close the serial connection
+
+map=[0,0;66,0;66,44;44,44;44,66;110,66;110,110;0,110];  %default map
+ang = 110;
+%[bestPosX, bestPosY, currentAng] = relocalise([22,66], ang/180*pi, 4, map);
+currentPos = [bestPosX, bestPosY];
+nextPos = [22,88];
+%changeAng2(currentAng,currentPos, nextPos)
 start = [22, 22];
-goal = [88,93];
+goal = [95,95];
 mainBot = BotSim(map);
+%est_botposition = start;
+%est_botangle = 0;
 astar(map, est_botposition, goal, mainBot, est_botangle)
+%[bestPosX, bestPosY, bestAng] = relocalise(start, 0.2, 4, map);
 COM_CloseNXT(h);
 
 function [weight, optimumAngle] = getWeight(particleScanDistances,SCAN_NUMBER, botSimScanDistances)
@@ -441,8 +477,8 @@ end
 
 function [bestPosX, bestPosY, bestAng] = relocalise(expectedPos, expectedAng, SCAN_NUMBER, map)
     particles = 1500;
-    posVar = 3;
-    angleVar = 0.1;
+    posVar = 4;
+    angleVar = 0.25;
     botSim = BotSim(map);
     botSim.setBotPos(expectedPos)
     botSim.setBotAng(expectedAng)
@@ -477,16 +513,25 @@ function [bestPosX, bestPosY, bestAng] = relocalise(expectedPos, expectedAng, SC
     end
         
     weight = unnormalisedWeights./sum(unnormalisedWeights);
+    x_estimate = 0;
+    y_estimate = 0;
+    ang_estimate = 0;
+    for i = 1:length(weight)
+       coords = simulatedParticle(i).getBotPos();
+       x_estimate = x_estimate + weight(i) * coords(1);
+       y_estimate = y_estimate + weight(i) * coords(2);
+       ang_estimate = ang_estimate + weight(i) * simulatedParticle(i).getBotAng();
+    end
     [bestParticleWeight, bestParticleIndex] = max(weight);
     bestPos = simulatedParticle(bestParticleIndex).getBotPos();
-    bestAng = mod(simulatedParticle(bestParticleIndex).getBotAng(), 2*pi);
-    bestPosX = bestPos(1);
-    bestPosY = bestPos(2);
+    bestAng = mod(ang_estimate, 2*pi);%mod(simulatedParticle(bestParticleIndex).getBotAng(), 2*pi);
+    bestPosX = x_estimate;%bestPos(1);
+    bestPosY = y_estimate;%bestPos(2);
     disp("Best Ang")
     disp(bestAng/(pi) * 180)
     disp("Best Pos")
     disp(bestPos)
-
+    disp("STEP")
 end
 
 
@@ -661,9 +706,26 @@ function angle = changeAng(currentAng, currentPos, nextPos)
     if currentPos(1) ~= nextPos(1) || currentPos(2) ~= nextPos(2)
         angle = mod(atan2((nextPos(2)-currentPos(2)),(nextPos(1)-currentPos(1))), 2*pi);
         disp("turn")
-        disp((angle - currentAng)/ pi *180)
+        disp((-angle + currentAng)/ pi *180)
         if angle ~= currentAng
             turn(-angle + currentAng);
+        end
+    else
+        angle = currentAng;
+    end
+end
+function angle = changeAng2(currentAng, currentPos, nextPos)
+    
+    if currentPos(1) ~= nextPos(1) || currentPos(2) ~= nextPos(2)
+        angle = mod(atan2((nextPos(2)-currentPos(2)),(nextPos(1)-currentPos(1))), 2*pi);
+        disp("current")
+        disp(currentAng/ pi *180)
+        disp("to face")
+        disp(angle/ pi *180)
+        if angle ~= currentAng
+            disp("turn")
+            disp(currentAng - angle)
+            turn(currentAng - angle);
         end
     else
         angle = currentAng;
@@ -675,13 +737,13 @@ function [currentAng,currentPos] = moveToGoal(path, pointsMap, map, ang)
     currentPos = pointsMap(path(1)).coord;
     for i = 2:length(path)
         nextPos = pointsMap(path(i)).coord;
-        currentAng = changeAng(currentAng, currentPos, nextPos);
+        currentAng = changeAng2(currentAng, currentPos, nextPos);
         d = calcDist(currentPos, nextPos);
         move(d)
         [bestPosX, bestPosY, currentAng] = relocalise(nextPos, currentAng, 4, map);
         currentPos = [bestPosX, bestPosY];  
         disp("Angle")
-        disp(currentAng)
+        disp(currentAng/180 * pi)
         disp("Current")
         disp(currentPos)
     end
@@ -715,18 +777,20 @@ function turn(ang)
         ang = abs(ang) - (2*pi);
     end
     
-    rotation = round(ang/pi*928.1);
+%     rotation = round(ang/pi*931.6);
     
+    rotation = round(ang/pi*931.6);
     motor = NXTMotor('A') ;
     motor2 = NXTMotor('C') ;
     %disp(ang)
     %disp(rotation)
+    power = 40;
     if (rotation > 0)
-        motor.Power = -30; 
-        motor2.Power = 30; 
+        motor.Power = -power; 
+        motor2.Power = power; 
     else
-        motor.Power = 30; 
-        motor2.Power = -30;
+        motor.Power = power; 
+        motor2.Power = -power;
         rotation = abs(rotation);
     end
     %disp(rotation)
